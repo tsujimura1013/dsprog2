@@ -1,0 +1,170 @@
+import flet as ft
+import requests
+from datetime import datetime
+
+AREA_URL = "http://www.jma.go.jp/bosai/common/const/area.json"
+FORECAST_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/{}.json"
+
+
+# 天気→絵文字の簡易マップ
+def weather_icon(text):
+    if "雨" in text:
+        return "🌧️"
+    if "雪" in text:
+        return "❄️"
+    if "曇" in text:
+        return "⛅"
+    if "晴" in text:
+        return "☀️"
+    return "🌈"
+
+
+def main(page: ft.Page):
+    page.title = "天気予報アプリ"
+    page.window_width = 1100
+    page.window_height = 750
+
+    # =========
+    # API取得
+    # =========
+    area_data = requests.get(AREA_URL).json()
+
+    # 地方リスト
+    regions = area_data["class10s"]
+    prefectures = area_data["offices"]
+
+    # ---- 左側パネルUI ----
+    region_tiles = []
+    forecast_cards = ft.Row(wrap=True, spacing=20)
+
+    result_title = ft.Text("地域を選択してください", size=18, weight=ft.FontWeight.BOLD)
+
+    # -------------------------
+    # 予報を描画する関数
+    # -------------------------
+    def show_forecast(code, name):
+
+        forecast_cards.controls.clear()
+
+        data = requests.get(FORECAST_URL.format(code)).json()
+
+        # 日付
+        dates = data[0]["timeSeries"][0]["timeDefines"]
+
+        # 天気文
+        weathers = data[0]["timeSeries"][0]["areas"][0]["weathers"]
+
+        # 気温
+        temps_min = data[1]["timeSeries"][1]["areas"][0]["tempsMin"]
+        temps_max = data[1]["timeSeries"][1]["areas"][0]["tempsMax"]
+
+        result_title.value = f"{name} の天気予報"
+
+        # ===================
+        # 日ごとのカード作成
+        # ===================
+        for i in range(len(dates)):
+
+            date_str = datetime.fromisoformat(dates[i]).strftime("%Y-%m-%d")
+            weather_text = weathers[i]
+            icon = weather_icon(weather_text)
+
+            # 気温は欠損があるのでガード
+            tmin = temps_min[i] if i < len(temps_min) else "-"
+            tmax = temps_max[i] if i < len(temps_max) else "-"
+
+            card = ft.Container(
+                width=150,
+                height=180,
+                padding=10,
+                bgcolor=ft.colors.WHITE,
+                border_radius=10,
+                content=ft.Column(
+                    [
+                        ft.Text(date_str, weight=ft.FontWeight.BOLD),
+                        ft.Text(icon, size=30),
+                        ft.Text(weather_text, size=12),
+                        ft.Text(f"{tmin}℃   /   {tmax}℃",
+                                spans=[
+                                    ft.TextSpan(f"{tmin}℃", style=ft.TextStyle(color=ft.colors.BLUE)),
+                                    ft.TextSpan(" / "),
+                                    ft.TextSpan(f"{tmax}℃", style=ft.TextStyle(color=ft.colors.RED)),
+                                ])
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+
+            forecast_cards.controls.append(card)
+
+        page.update()
+
+    # --------------------------------
+    # 左の地方 → 県 ExpansionTile生成
+    # --------------------------------
+    for region in regions.values():
+        region_name = region["name"]
+        region_code_head = region["code"][:2]
+
+        tiles = []
+
+        for code, pref in prefectures.items():
+            if code.startswith(region_code_head):
+                tiles.append(
+                    ft.ListTile(
+                        title=ft.Text(pref["name"]),
+                        subtitle=ft.Text(code),
+                        on_click=lambda e, c=code, n=pref["name"]: show_forecast(c, n),
+                    )
+                )
+
+        region_tiles.append(
+            ft.ExpansionTile(
+                title=ft.Text(region_name),
+                controls=tiles,
+            )
+        )
+
+    sidebar = ft.Container(
+        width=280,
+        bgcolor="#607D8B",
+        padding=15,
+        content=ft.Column(
+            [ft.Text("地域を選択", size=18, color="white")] + region_tiles,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+    )
+
+    # 右側
+    content_area = ft.Container(
+        expand=True,
+        padding=20,
+        bgcolor="#B0BEC5",
+        content=ft.Column(
+            [
+                result_title,
+                forecast_cards,
+            ],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+    )
+
+    # 全体レイアウト
+    page.add(
+        ft.Column(
+            [
+                ft.AppBar(title=ft.Text("天気予報アプリ"), bgcolor="#3F51B5", color="white"),
+                ft.Row(
+                    [
+                        sidebar,
+                        content_area,
+                    ],
+                    expand=True,
+                ),
+            ]
+        )
+    )
+
+
+ft.app(target=main)
